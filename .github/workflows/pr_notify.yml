@@ -4,6 +4,9 @@ on:
   pull_request:
     types: [opened, closed, reopened]
 
+  pull_request_review:
+    types: [submitted]
+
 jobs:
   notify:
     runs-on: ubuntu-latest
@@ -13,20 +16,43 @@ jobs:
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
         run: |
-          ACTION="${{ github.event.action }}"
-          TITLE="${{ github.event.pull_request.title }}"
-          AUTHOR="${{ github.event.pull_request.user.login }}"
-          URL="${{ github.event.pull_request.html_url }}"
-          REPO="${{ github.repository }}"
+          EVENT="${{ github.event_name }}"
 
-          if [[ "$ACTION" == "closed" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
-            ACTION_TEXT="✅ PR 已合并"
-          elif [[ "$ACTION" == "closed" ]]; then
-            ACTION_TEXT="❌ PR 已关闭"
-          elif [[ "$ACTION" == "opened" ]]; then
-            ACTION_TEXT="🆕 PR 已创建"
-          else
-            ACTION_TEXT="ℹ️ PR 更新"
+          if [[ "$EVENT" == "pull_request" ]]; then
+            ACTION="${{ github.event.action }}"
+            TITLE="${{ github.event.pull_request.title }}"
+            AUTHOR="${{ github.event.pull_request.user.login }}"
+            URL="${{ github.event.pull_request.html_url }}"
+            REPO="${{ github.repository }}"
+
+            if [[ "$ACTION" == "opened" ]]; then
+              MSG="🆕 PR 已创建"
+            elif [[ "$ACTION" == "closed" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
+              MSG="✅ PR 已合并"
+            elif [[ "$ACTION" == "closed" ]]; then
+              MSG="❌ PR 已关闭"
+            else
+              MSG="ℹ️ PR 更新"
+            fi
+
+            OPERATOR="$AUTHOR"
+
+          elif [[ "$EVENT" == "pull_request_review" ]]; then
+            STATE="${{ github.event.review.state }}"
+            REVIEWER="${{ github.event.review.user.login }}"
+            TITLE="${{ github.event.pull_request.title }}"
+            URL="${{ github.event.pull_request.html_url }}"
+            REPO="${{ github.repository }}"
+
+            if [[ "$STATE" == "approved" ]]; then
+              MSG="👍 PR 已通过审核"
+            elif [[ "$STATE" == "changes_requested" ]]; then
+              MSG="❌ PR 被请求修改"
+            else
+              MSG="💬 PR 新评论"
+            fi
+
+            OPERATOR="$REVIEWER"
           fi
 
           curl -X POST "$FEISHU_WEBHOOK_URL" \
@@ -34,6 +60,7 @@ jobs:
             -d "{
               \"msg_type\": \"text\",
               \"content\": {
-                \"text\": \"$ACTION_TEXT\n\n📦 仓库: $REPO\n👤 发起人: $AUTHOR\n📄 标题: $TITLE\n🔗 链接: $URL\"
+                \"text\": \"$MSG\n\n📦 仓库: $REPO\n👤 操作人: $OPERATOR\n📄 标题: $TITLE\n🔗 链接: $URL\"
               }
             }"
+
