@@ -16,9 +16,8 @@ jobs:
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
         run: |
-          # -------------------------
-          # 用户映射（GitHub -> 飞书）
-          # -------------------------
+          set -e
+
           declare -A USER_MAP
           USER_MAP["x-jipeng"]="ou_1b27da09b4e12ca7c31891a66160c902"
           USER_MAP["HKFoundation"]="ou_3939a6eb92f5819b2c7ca938dfdf53ab"
@@ -27,55 +26,72 @@ jobs:
           EVENT="${{ github.event_name }}"
           REPO="${{ github.repository }}"
 
-          get_user_tag() {
-            local user=$1
-            local uid=${USER_MAP[$user]}
-            if [[ -n "$uid" ]]; then
-              echo "<at user_id=\"$uid\"></at>"
-            else
-              echo "@$user"
-            fi
+          get_user_id() {
+            echo "${USER_MAP[$1]}"
+          }
+
+          build_post() {
+            local title="$1"
+            local at_user="$2"
+            local text="$3"
+
+            cat <<EOF
+{
+  "msg_type": "post",
+  "content": {
+    "post": {
+      "zh_cn": {
+        "title": "$title",
+        "content": [
+          [
+            { "tag": "at", "user_id": "$at_user" },
+            { "tag": "text", "text": " $text" }
+          ]
+        ]
+      }
+    }
+  }
+}
+EOF
           }
 
           if [[ "$EVENT" == "pull_request" ]]; then
             ACTION="${{ github.event.action }}"
             TITLE="${{ github.event.pull_request.title }}"
-            AUTHOR="${{ github.event.pull_request.user.login }}"
             URL="${{ github.event.pull_request.html_url }}"
+            AUTHOR="${{ github.event.pull_request.user.login }}"
 
-            AUTHOR_TAG=$(get_user_tag "$AUTHOR")
+            AUTHOR_ID=$(get_user_id "$AUTHOR")
 
             if [[ "$ACTION" == "opened" ]]; then
-              MSG="🆕 PR 已创建\n👤 发起人：$AUTHOR_TAG\n📄 标题：$TITLE\n🔗 $URL"
+              BODY=$(build_post "🆕 PR 创建" "$AUTHOR_ID" "创建了 PR：$TITLE")
             elif [[ "$ACTION" == "closed" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
-              MSG="✅ PR 已合并\n👤 发起人：$AUTHOR_TAG\n📄 标题：$TITLE\n🔗 $URL"
+              BODY=$(build_post "✅ PR 已合并" "$AUTHOR_ID" "PR 已合并：$TITLE")
             else
-              MSG="❌ PR 已关闭\n👤 发起人：$AUTHOR_TAG\n📄 标题：$TITLE\n🔗 $URL"
+              exit 0
             fi
 
           elif [[ "$EVENT" == "pull_request_review" ]]; then
             STATE="${{ github.event.review.state }}"
             REVIEWER="${{ github.event.review.user.login }}"
-            TITLE="${{ github.event.pull_request.title }}"
-            URL="${{ github.event.pull_request.html_url }}"
-
-            REVIEWER_TAG=$(get_user_tag "$REVIEWER")
             AUTHOR="${{ github.event.pull_request.user.login }}"
-            AUTHOR_TAG=$(get_user_tag "$AUTHOR")
+            TITLE="${{ github.event.pull_request.title }}"
+
+            REVIEWER_ID=$(get_user_id "$REVIEWER")
+            AUTHOR_ID=$(get_user_id "$AUTHOR")
 
             if [[ "$STATE" == "approved" ]]; then
-              MSG="👍 PR 已通过审核\n👤 审核人：$REVIEWER_TAG\n👤 发起人：$AUTHOR_TAG\n📄 标题：$TITLE\n🔗 $URL"
+              BODY=$(build_post "👍 PR 已通过审核" "$AUTHOR_ID" "审核人：$REVIEWER")
             elif [[ "$STATE" == "changes_requested" ]]; then
-              MSG="❌ PR 被请求修改\n👤 审核人：$REVIEWER_TAG\n👤 发起人：$AUTHOR_TAG\n📄 标题：$TITLE\n🔗 $URL"
+              BODY=$(build_post "❌ PR 被要求修改" "$AUTHOR_ID" "审核人：$REVIEWER")
+            else
+              exit 0
             fi
           fi
 
-          curl -X POST "$FEISHU_WEBHOOK_URL" \
+          echo "$BODY"
+
+          curl -s -X POST "$FEISHU_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"msg_type\": \"text\",
-              \"content\": {
-                \"text\": \"$MSG\"
-              }
-            }"
+            -d "$BODY"
 
