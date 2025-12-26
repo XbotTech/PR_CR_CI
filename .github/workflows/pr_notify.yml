@@ -1,0 +1,66 @@
+name: PR Notify to Feishu
+
+on:
+  pull_request:
+    types: [opened, closed, reopened]
+
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send message to Feishu
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+        run: |
+          EVENT="${{ github.event_name }}"
+
+          if [[ "$EVENT" == "pull_request" ]]; then
+            ACTION="${{ github.event.action }}"
+            TITLE="${{ github.event.pull_request.title }}"
+            AUTHOR="${{ github.event.pull_request.user.login }}"
+            URL="${{ github.event.pull_request.html_url }}"
+            REPO="${{ github.repository }}"
+
+            if [[ "$ACTION" == "opened" ]]; then
+              MSG="🆕 PR 已创建"
+            elif [[ "$ACTION" == "closed" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
+              MSG="✅ PR 已合并"
+            elif [[ "$ACTION" == "closed" ]]; then
+              MSG="❌ PR 已关闭"
+            else
+              MSG="ℹ️ PR 更新"
+            fi
+
+            OPERATOR="$AUTHOR"
+
+          elif [[ "$EVENT" == "pull_request_review" ]]; then
+            STATE="${{ github.event.review.state }}"
+            REVIEWER="${{ github.event.review.user.login }}"
+            TITLE="${{ github.event.pull_request.title }}"
+            URL="${{ github.event.pull_request.html_url }}"
+            REPO="${{ github.repository }}"
+
+            if [[ "$STATE" == "approved" ]]; then
+              MSG="👍 PR 已通过审核"
+            elif [[ "$STATE" == "changes_requested" ]]; then
+              MSG="❌ PR 被请求修改"
+            else
+              MSG="💬 PR 新评论"
+            fi
+
+            OPERATOR="$REVIEWER"
+          fi
+
+          curl -X POST "$FEISHU_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"msg_type\": \"text\",
+              \"content\": {
+                \"text\": \"$MSG\n\n📦 仓库: $REPO\n👤 操作人: $OPERATOR\n📄 标题: $TITLE\n🔗 链接: $URL\"
+              }
+            }"
+
