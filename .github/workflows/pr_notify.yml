@@ -18,96 +18,164 @@ jobs:
         run: |
           set -e
 
-          echo "🚀 Start PR notify"
+          echo "🚀 PR Notify Start"
 
-          # ===============================
-          # GitHub 用户 -> 飞书 user_id 映射
-          # ===============================
+          ################################
+          # GitHub 用户 -> 飞书 user_id
+          ################################
           declare -A USER_MAP
           USER_MAP["x-jipeng"]="ou_1b27da09b4e12ca7c31891a66160c902"
           USER_MAP["HKFoundation"]="ou_3939a6eb92f5819b2c7ca938dfdf53ab"
           USER_MAP["zhangXuXbotgo"]="ou_ffdd59a56be567c7551ee786b2d091ec"
 
+          ################################
+          # 工具函数
+          ################################
+
           get_user_id() {
             echo "${USER_MAP[$1]}"
           }
 
-          # ===============================
-          # 构建飞书消息（post 类型）
-          # ===============================
+          # 构建 @ 人节点（支持多个）
+          build_at_nodes() {
+            local users=("$@")
+            local nodes=""
+
+            for u in "${users[@]}"; do
+              uid="${USER_MAP[$u]}"
+              if [[ -n "$uid" ]]; then
+                nodes="$nodes {\"tag\":\"at\",\"user_id\":\"$uid\"},"
+              fi
+            done
+
+            echo "${nodes%,}"
+          }
+
+          # 构建飞书消息
           build_post() {
             local title="$1"
-            local at_user="$2"
-            local text="$3"
+            local repo="$2"
+            local actor="$3"
+            local pr_title="$4"
+            local url="$5"
+            shift 5
+            local at_users=("$@")
 
-            echo "{
-              \"msg_type\": \"post\",
-              \"content\": {
-                \"post\": {
-                  \"zh_cn\": {
-                    \"title\": \"$title\",
-                    \"content\": [
-                      [
-                        { \"tag\": \"at\", \"user_id\": \"$at_user\" },
-                        { \"tag\": \"text\", \"text\": \" $text\" }
+            local at_nodes
+            at_nodes=$(build_at_nodes "${at_users[@]}")
+
+            jq -n \
+              --arg title "$title" \
+              --arg repo "$repo" \
+              --arg actor "$actor" \
+              --arg pr_title "$pr_title" \
+              --arg url "$url" \
+              --argjson at_nodes "[$at_nodes]" '
+              {
+                msg_type: "post",
+                content: {
+                  post: {
+                    zh_cn: {
+                      title: $title,
+                      content: [
+                        [
+                          { "tag": "text", "text": "📦 仓库: " },
+                          { "tag": "text", "text": $repo }
+                        ],
+                        [
+                          { "tag": "text", "text": "👤 操作人: " },
+                          { "tag": "text", "text": $actor }
+                        ],
+                        [
+                          { "tag": "text", "text": "📄 标题: " },
+                          { "tag": "text", "text": $pr_title }
+                        ],
+                        [
+                          { "tag": "text", "text": "🔗 链接: " },
+                          { "tag": "a", "text": $url, "href": $url }
+                        ],
+                        $at_nodes
                       ]
-                    ]
+                    }
                   }
                 }
               }
-            }"
+            '
           }
 
+          ################################
+          # 公共变量
+          ################################
           EVENT="${{ github.event_name }}"
-          echo "EVENT=$EVENT"
+          REPO="${{ github.repository }}"
+          TITLE="${{ github.event.pull_request.title }}"
+          URL="${{ github.event.pull_request.html_url }}"
+          AUTHOR="${{ github.event.pull_request.user.login }}"
 
-          # ===============================
-          # PR 事件
-          # ===============================
+          ################################
+          # PR 创建 / 合并
+          ################################
           if [[ "$EVENT" == "pull_request" ]]; then
             ACTION="${{ github.event.action }}"
-            TITLE="${{ github.event.pull_request.title }}"
-            URL="${{ github.event.pull_request.html_url }}"
-            AUTHOR="${{ github.event.pull_request.user.login }}"
 
-            AUTHOR_ID=$(get_user_id "$AUTHOR")
+            # 你可以在这里维护审核人
+            REVIEWERS=("x-jipeng" "HKFoundation")
 
             if [[ "$ACTION" == "opened" ]]; then
-              BODY=$(build_post "🆕 PR 创建" "$AUTHOR_ID" "创建了 PR：$TITLE")
+              BODY=$(build_post \
+                "🆕 PR 已创建" \
+                "$REPO" \
+                "$AUTHOR" \
+                "$TITLE" \
+                "$URL" \
+                "${REVIEWERS[@]}"
+              )
 
             elif [[ "$ACTION" == "closed" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
-              BODY=$(build_post "✅ PR 已合并" "$AUTHOR_ID" "PR 已合并：$TITLE")
-
+              BODY=$(build_post \
+                "✅ PR 已合并" \
+                "$REPO" \
+                "$AUTHOR" \
+                "$TITLE" \
+                "$URL" \
+                "${REVIEWERS[@]}" "$AUTHOR"
+              )
             else
-              echo "忽略事件: $ACTION"
               exit 0
             fi
 
-          # ===============================
-          # PR 审核事件
-          # ===============================
+          ################################
+          # PR 审核
+          ################################
           elif [[ "$EVENT" == "pull_request_review" ]]; then
             STATE="${{ github.event.review.state }}"
             REVIEWER="${{ github.event.review.user.login }}"
-            AUTHOR="${{ github.event.pull_request.user.login }}"
-            TITLE="${{ github.event.pull_request.title }}"
-
-            REVIEWER_ID=$(get_user_id "$REVIEWER")
-            AUTHOR_ID=$(get_user_id "$AUTHOR")
 
             if [[ "$STATE" == "approved" ]]; then
-              BODY=$(build_post "👍 PR 已通过审核" "$AUTHOR_ID" "审核人：$REVIEWER")
+              BODY=$(build_post \
+                "👍 PR 已通过审核" \
+                "$REPO" \
+                "$REVIEWER" \
+                "$TITLE" \
+                "$URL" \
+                "$AUTHOR"
+              )
 
             elif [[ "$STATE" == "changes_requested" ]]; then
-              BODY=$(build_post "❌ PR 被要求修改" "$AUTHOR_ID" "审核人：$REVIEWER")
-
+              BODY=$(build_post \
+                "❌ PR 被要求修改" \
+                "$REPO" \
+                "$REVIEWER" \
+                "$TITLE" \
+                "$URL" \
+                "$AUTHOR"
+              )
             else
-              echo "忽略 review 状态: $STATE"
               exit 0
             fi
           fi
 
-          echo "========== FEISHU PAYLOAD =========="
+          echo "========== FEISHU MESSAGE =========="
           echo "$BODY"
           echo "==================================="
 
