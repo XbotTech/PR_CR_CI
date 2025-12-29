@@ -27,6 +27,13 @@ jobs:
           USER_MAP["x-jipeng"]="ou_1b27da09b4e12ca7c31891a66160c902"
           USER_MAP["HKFoundation"]="ou_3939a6eb92f5819b2c7ca938dfdf53ab"
           USER_MAP["zhangXuXbotgo"]="ou_ffdd59a56be567c7551ee786b2d091ec"
+          USER_MAP["lihuize-xbotgo"]="ou_99b2693a8be2da8947303bfd741ebcb2"
+          USER_MAP["niuzhonglei"]="ou_1cded209788734c9c3e1edd3ad9be2d4"
+          USER_MAP["van6855"]="ou_9b8be51926380279b2d9c2fe0b4d11d3"
+          USER_MAP["xbotgo-gaoyunfeng"]="ou_ec58147bda11d60846e8c601e18c6913"
+          USER_MAP["zhoulong-xbotgo"]="ou_8b4e30691faa20dbfb428aa0bc726126"
+          USER_MAP["haoareuuuu"]="ou_59b7d4c075f125d50df8a93afa9fb296"
+          USER_MAP["jingdou021"]="ou_c4f6cc32408ce08e7c914329c02732fc"
 
           ################################
           # 工具函数
@@ -119,7 +126,7 @@ jobs:
             ACTION="${{ github.event.action }}"
 
             # 你可以在这里维护审核人
-            REVIEWERS=("x-jipeng" "HKFoundation")
+            REVIEWERS=("x-jipeng")
 
             if [[ "$ACTION" == "opened" ]]; then
               BODY=$(build_post \
