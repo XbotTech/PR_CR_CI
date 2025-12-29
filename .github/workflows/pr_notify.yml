@@ -21,41 +21,64 @@ jobs:
           echo "🚀 PR Notify Start"
 
           ################################
-          # GitHub 用户 -> 飞书 user_id
+          # GitHub 用户 → 飞书 user_id + 邮箱
           ################################
           declare -A USER_MAP
+          declare -A USER_EMAIL
+
           USER_MAP["x-jipeng"]="ou_1b27da09b4e12ca7c31891a66160c902"
+          USER_EMAIL["x-jipeng"]="pengji@xbotgo.com"
+
           USER_MAP["HKFoundation"]="ou_3939a6eb92f5819b2c7ca938dfdf53ab"
+          USER_EMAIL["HKFoundation"]="liusen@xbotgo.com"
+
           USER_MAP["zhangXuXbotgo"]="ou_ffdd59a56be567c7551ee786b2d091ec"
+          USER_EMAIL["zhangXuXbotgo"]="zhangxu@xbotgo.com"
+
+          USER_MAP["lihuize-xbotgo"]="ou_99b2693a8be2da8947303bfd741ebcb2"
+          USER_EMAIL["lihuize-xbotgo"]="lihuize@xbotgo.com"
+
+          USER_MAP["niuzhonglei"]="ou_1cded209788734c9c3e1edd3ad9be2d4"
+          USER_EMAIL["niuzhonglei"]="niuzhonglei@xbotgo.com"
+
+          USER_MAP["van6855"]="ou_9b8be51926380279b2d9c2fe0b4d11d3"
+          USER_EMAIL["van6855"]="wangfan@xbotgo.com"
+
+          USER_MAP["xbotgo-gaoyunfeng"]="ou_ec58147bda11d60846e8c601e18c6913"
+          USER_EMAIL["xbotgo-gaoyunfeng"]="gaoyunfeng@xbotgo.com"
+
+          USER_MAP["zhoulong-xbotgo"]="ou_8b4e30691faa20dbfb428aa0bc726126"
+          USER_EMAIL["zhoulong-xbotgo"]="zhoulong@xbotgo.com"
+
+          USER_MAP["haoareuuuu"]="ou_59b7d4c075f125d50df8a93afa9fb296"
+          USER_EMAIL["haoareuuuu"]="hanshenglong@xbotgo.com"
+
+          USER_MAP["Long-Xbot"]="ou_c4f6cc32408ce08e7c914329c02732fc"
+          USER_EMAIL["Long-Xbot"]="jinghuilong@xbotgo.com"
 
           ################################
           # 工具函数
           ################################
-
-          get_user_id() {
-            echo "${USER_MAP[$1]}"
+          get_email() {
+            echo "${USER_EMAIL[$1]}"
           }
 
-          # 构建 @ 人节点（支持多个）
           build_at_nodes() {
             local users=("$@")
             local nodes=""
 
             for u in "${users[@]}"; do
               uid="${USER_MAP[$u]}"
-              if [[ -n "$uid" ]]; then
-                nodes="$nodes {\"tag\":\"at\",\"user_id\":\"$uid\"},"
-              fi
+              [[ -n "$uid" ]] && nodes="$nodes {\"tag\":\"at\",\"user_id\":\"$uid\"},"
             done
 
             echo "${nodes%,}"
           }
 
-          # 构建飞书消息
           build_post() {
             local title="$1"
             local repo="$2"
-            local actor="$3"
+            local operator="$3"
             local pr_title="$4"
             local url="$5"
             shift 5
@@ -67,7 +90,7 @@ jobs:
             jq -n \
               --arg title "$title" \
               --arg repo "$repo" \
-              --arg actor "$actor" \
+              --arg operator "$operator" \
               --arg pr_title "$pr_title" \
               --arg url "$url" \
               --argjson at_nodes "[$at_nodes]" '
@@ -84,7 +107,7 @@ jobs:
                         ],
                         [
                           { "tag": "text", "text": "👤 操作人: " },
-                          { "tag": "text", "text": $actor }
+                          { "tag": "text", "text": $operator }
                         ],
                         [
                           { "tag": "text", "text": "📄 标题: " },
@@ -111,21 +134,22 @@ jobs:
           TITLE="${{ github.event.pull_request.title }}"
           URL="${{ github.event.pull_request.html_url }}"
           AUTHOR="${{ github.event.pull_request.user.login }}"
+          AUTHOR_EMAIL=$(get_email "$AUTHOR")
 
           ################################
-          # PR 创建 / 合并
+          # PR 事件
           ################################
           if [[ "$EVENT" == "pull_request" ]]; then
             ACTION="${{ github.event.action }}"
 
-            # 你可以在这里维护审核人
-            REVIEWERS=("x-jipeng" "HKFoundation")
+            # 这里定义默认审核人
+            REVIEWERS=("x-jipeng")
 
             if [[ "$ACTION" == "opened" ]]; then
               BODY=$(build_post \
                 "🆕 PR 已创建" \
                 "$REPO" \
-                "$AUTHOR" \
+                "$AUTHOR_EMAIL" \
                 "$TITLE" \
                 "$URL" \
                 "${REVIEWERS[@]}"
@@ -135,7 +159,7 @@ jobs:
               BODY=$(build_post \
                 "✅ PR 已合并" \
                 "$REPO" \
-                "$AUTHOR" \
+                "$AUTHOR_EMAIL" \
                 "$TITLE" \
                 "$URL" \
                 "${REVIEWERS[@]}" "$AUTHOR"
@@ -145,17 +169,18 @@ jobs:
             fi
 
           ################################
-          # PR 审核
+          # 审核事件
           ################################
           elif [[ "$EVENT" == "pull_request_review" ]]; then
             STATE="${{ github.event.review.state }}"
             REVIEWER="${{ github.event.review.user.login }}"
+            REVIEWER_EMAIL=$(get_email "$REVIEWER")
 
             if [[ "$STATE" == "approved" ]]; then
               BODY=$(build_post \
                 "👍 PR 已通过审核" \
                 "$REPO" \
-                "$REVIEWER" \
+                "$REVIEWER_EMAIL" \
                 "$TITLE" \
                 "$URL" \
                 "$AUTHOR"
@@ -165,7 +190,7 @@ jobs:
               BODY=$(build_post \
                 "❌ PR 被要求修改" \
                 "$REPO" \
-                "$REVIEWER" \
+                "$REVIEWER_EMAIL" \
                 "$TITLE" \
                 "$URL" \
                 "$AUTHOR"
