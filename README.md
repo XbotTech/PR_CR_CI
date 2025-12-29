@@ -10,6 +10,11 @@ github-feishu-webhook/
 ├── config.py
 ├── requirements.txt
 └── README.md
+Repo → Settings → Secrets and variables → Actions
+| Name               | Value                                                 |
+| ------------------ | ----------------------------------------------------- |
+| FEISHU_WEBHOOK_URL | [https://open.feishu.cn/](https://open.feishu.cn/)... |
+.github/workflows/pr_notify.yml
 
 
 
