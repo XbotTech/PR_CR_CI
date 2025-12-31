@@ -66,8 +66,13 @@ jobs:
           build_at_nodes() {
             local users=("$@")
             local nodes=""
+            declare -A seen
 
             for u in "${users[@]}"; do
+              [[ -z "$u" ]] && continue
+              [[ -n "${seen[$u]}" ]] && continue
+              seen[$u]=1
+
               uid="${USER_MAP[$u]}"
               [[ -n "$uid" ]] && nodes="$nodes {\"tag\":\"at\",\"user_id\":\"$uid\"},"
             done
@@ -75,6 +80,40 @@ jobs:
             echo "${nodes%,}"
           }
 
+          ################################
+          # 公共变量
+          ################################
+          EVENT="${{ github.event_name }}"
+          ACTION="${{ github.event.action }}"
+          REPO="${{ github.repository }}"
+          TITLE="${{ github.event.pull_request.title }}"
+          URL="${{ github.event.pull_request.html_url }}"
+          AUTHOR="${{ github.event.pull_request.user.login }}"
+          AUTHOR_EMAIL=$(get_email "$AUTHOR")
+
+          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+          HEAD_BRANCH="${{ github.event.pull_request.head.ref }}"
+
+          ################################
+          # 获取临时审核人（PR 页面上加的）
+          ################################
+          mapfile -t TEMP_REVIEWERS < <(
+            echo '${{ toJson(github.event.pull_request.requested_reviewers) }}' | jq -r '.[].login'
+          )
+
+          ################################
+          # 默认审核人
+          ################################
+          DEFAULT_REVIEWERS=("x-jipeng")
+
+          ################################
+          # 合并审核人
+          ################################
+          REVIEWERS=("${DEFAULT_REVIEWERS[@]}" "${TEMP_REVIEWERS[@]}")
+
+          ################################
+          # 构建消息体
+          ################################
           build_post() {
             local title="$1"
             local repo="$2"
@@ -93,6 +132,8 @@ jobs:
               --arg operator "$operator" \
               --arg pr_title "$pr_title" \
               --arg url "$url" \
+              --arg base "$BASE_BRANCH" \
+              --arg head "$HEAD_BRANCH" \
               --argjson at_nodes "[$at_nodes]" '
               {
                 msg_type: "post",
@@ -108,6 +149,10 @@ jobs:
                         [
                           { "tag": "text", "text": "👤 操作人: " },
                           { "tag": "text", "text": $operator }
+                        ],
+                        [
+                          { "tag": "text", "text": "🌿 分支: " },
+                          { "tag": "text", "text": ($head + " → " + $base) }
                         ],
                         [
                           { "tag": "text", "text": "📄 标题: " },
@@ -127,74 +172,34 @@ jobs:
           }
 
           ################################
-          # 公共变量
-          ################################
-          EVENT="${{ github.event_name }}"
-          REPO="${{ github.repository }}"
-          TITLE="${{ github.event.pull_request.title }}"
-          URL="${{ github.event.pull_request.html_url }}"
-          AUTHOR="${{ github.event.pull_request.user.login }}"
-          AUTHOR_EMAIL=$(get_email "$AUTHOR")
-
-          ################################
-          # PR 事件
+          # 事件处理
           ################################
           if [[ "$EVENT" == "pull_request" ]]; then
-            ACTION="${{ github.event.action }}"
-
-            # 这里定义默认审核人
-            REVIEWERS=("x-jipeng")
 
             if [[ "$ACTION" == "opened" ]]; then
-              BODY=$(build_post \
-                "🆕 PR 已创建" \
-                "$REPO" \
-                "$AUTHOR_EMAIL" \
-                "$TITLE" \
-                "$URL" \
-                "${REVIEWERS[@]}"
-              )
+              BODY=$(build_post "🆕 PR 已创建" "$REPO" "$AUTHOR_EMAIL" "$TITLE" "$URL" "${REVIEWERS[@]}")
+
+            elif [[ "$ACTION" == "reopened" ]]; then
+              BODY=$(build_post "🔄 PR 已重新打开" "$REPO" "$AUTHOR_EMAIL" "$TITLE" "$URL" "${REVIEWERS[@]}")
 
             elif [[ "$ACTION" == "closed" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
-              BODY=$(build_post \
-                "✅ PR 已合并" \
-                "$REPO" \
-                "$AUTHOR_EMAIL" \
-                "$TITLE" \
-                "$URL" \
-                "${REVIEWERS[@]}" "$AUTHOR"
-              )
+              BODY=$(build_post "✅ PR 已合并" "$REPO" "$AUTHOR_EMAIL" "$TITLE" "$URL" "${REVIEWERS[@]}" "$AUTHOR")
+
             else
               exit 0
             fi
 
-          ################################
-          # 审核事件
-          ################################
           elif [[ "$EVENT" == "pull_request_review" ]]; then
             STATE="${{ github.event.review.state }}"
             REVIEWER="${{ github.event.review.user.login }}"
             REVIEWER_EMAIL=$(get_email "$REVIEWER")
 
             if [[ "$STATE" == "approved" ]]; then
-              BODY=$(build_post \
-                "👍 PR 已通过审核" \
-                "$REPO" \
-                "$REVIEWER_EMAIL" \
-                "$TITLE" \
-                "$URL" \
-                "$AUTHOR"
-              )
+              BODY=$(build_post "👍 PR 已通过审核" "$REPO" "$REVIEWER_EMAIL" "$TITLE" "$URL" "$AUTHOR")
 
             elif [[ "$STATE" == "changes_requested" ]]; then
-              BODY=$(build_post \
-                "❌ PR 被要求修改" \
-                "$REPO" \
-                "$REVIEWER_EMAIL" \
-                "$TITLE" \
-                "$URL" \
-                "$AUTHOR"
-              )
+              BODY=$(build_post "❌ PR 被要求修改" "$REPO" "$REVIEWER_EMAIL" "$TITLE" "$URL" "$AUTHOR")
+
             else
               exit 0
             fi
